@@ -4,7 +4,7 @@ from dotenv import load_dotenv
 import os
 import asyncio
 import logging
-import db
+from pathlib import Path
 from utils.database import Database
 from utils.logger import setup_logger
 from typing import cast
@@ -38,14 +38,18 @@ class KeyMasterBot(commands.Bot):
         # Инициализация базы данных
         await self.db.create_tables()  # Используем экземпляр базы данных
 
-        # Загрузка когов
-        for filename in os.listdir("./cogs"):
-            if filename.endswith(".py"):
-                try:
-                    await self.load_extension(f"cogs.{filename[:-3]}")
-                    logger.info(f"✅ Ког загружен: {filename}")
-                except Exception as e:
-                    logger.error(f"❌ Ошибка загрузки {filename}: {e}", exc_info=True)
+        # Загрузка когов (путь относительно файла)
+        cogs_dir = Path(__file__).parent / "cogs"
+        if cogs_dir.exists() and cogs_dir.is_dir():
+            for path in cogs_dir.iterdir():
+                if path.suffix == ".py" and path.name != "__init__.py":
+                    try:
+                        await self.load_extension(f"cogs.{path.stem}")
+                        logger.info(f"✅ Ког загружен: {path.name}")
+                    except Exception as e:
+                        logger.error(f"❌ Ошибка загрузки {path.name}: {e}", exc_info=True)
+        else:
+            logger.warning(f"Папка cogs не найдена по пути: {cogs_dir}")
 
         # Синхронизация слэш-команд
         try:
@@ -73,8 +77,21 @@ class KeyMasterBot(commands.Bot):
 async def main():
     # Запуск бота
     bot = KeyMasterBot()
-    async with bot:
-        await bot.start(TOKEN)  # type: ignore[arg-type]
+    try:
+        async with bot:
+            await bot.start(TOKEN)  # type: ignore[arg-type]
+    except KeyboardInterrupt:
+        logger.info("Получен KeyboardInterrupt — корректно завершаем бота...")
+        try:
+            await bot.close()
+        except Exception:
+            logger.exception("Ошибка при закрытии бота после KeyboardInterrupt")
+    except Exception:
+        logger.exception("Неожиданная ошибка в main loop")
+        raise
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    try:
+        asyncio.run(main())
+    except KeyboardInterrupt:
+        logger.info("Завершение работы по запросу пользователя (KeyboardInterrupt)")

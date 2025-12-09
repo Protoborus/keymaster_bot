@@ -10,6 +10,10 @@ def setup_logger():
     logger = logging.getLogger()
     logger.setLevel(logging.INFO)
 
+    # Если хендлеры уже добавлены — не добавляем заново (предотвращаем дублирование)
+    if logger.handlers:
+        return logger
+
     # 1. Хендлер для ФАЙЛА (bot.log) - всегда UTF-8
     file_handler = logging.FileHandler(filename='bot.log', encoding='utf-8', mode='a')
     file_handler.setFormatter(log_format)

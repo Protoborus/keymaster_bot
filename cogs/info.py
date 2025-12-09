@@ -28,7 +28,8 @@ class Info(commands.Cog):
         await interaction.response.defer()
 
         try:
-            data = await get_weekly_affixes('eu')
+            # Запрашиваем официальные русские названия и описания аффиксов
+            data = await get_weekly_affixes('eu', 'ru')
             if not data:
                 await interaction.followup.send("Не удалось получить данные об аффиксах.", ephemeral=True)
                 return
@@ -40,14 +41,10 @@ class Info(commands.Cog):
             )
 
             for affix in data["affix_details"]:
-                affix_name = affix["name"]
-                affix_desc = affix["description"]
-
-                # Попытка найти перевод аффикса
-                ru_name = AFFIX_TRANSLATIONS.get(affix_name, affix_name)
-                ru_desc = affix_desc if ru_name == affix_name else AFFIX_TRANSLATIONS.get(affix_name, affix_desc)
-
-                embed.add_field(name=f"{ru_name} ({affix_name})", value=ru_desc, inline=False)
+                # API с locale='ru' возвращает русские поля name и description
+                ru_name = affix.get("name") or AFFIX_TRANSLATIONS.get(affix.get("name"), affix.get("name"))
+                ru_desc = affix.get("description") or ""
+                embed.add_field(name=f"{ru_name}", value=ru_desc, inline=False)
 
             embed.set_footer(text="Источник: Raider.IO | Подробнее: https://ru.wowhead.com/affixes")
             await interaction.followup.send(embed=embed)

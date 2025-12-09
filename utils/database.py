@@ -17,25 +17,38 @@ class Database:
                     rio_score REAL DEFAULT 0,
                     character_class TEXT,
                     thumbnail_url TEXT,
+                    item_level INTEGER,
                     last_updated TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 )
             ''')
             await db.commit()
             print(f"[INFO] База данных {self.db_name} проверена/создана.")
 
-    async def register_user(self, discord_id, name, realm, region, score, char_class, thumbnail):
+            # Миграция: убедимся, что колонка item_level существует (для старых БД)
+            try:
+                async with db.execute("PRAGMA table_info(users)") as cursor:
+                    cols = await cursor.fetchall()
+                    col_names = [c[1] for c in cols]
+                    if 'item_level' not in col_names:
+                        await db.execute('ALTER TABLE users ADD COLUMN item_level INTEGER')
+                        await db.commit()
+            except Exception:
+                # Не критично, продолжаем
+                pass
+
+    async def register_user(self, discord_id, name, realm, region, score, char_class, thumbnail, item_level=None):
         async with aiosqlite.connect(self.db_name) as db:
             await db.execute('''
                 INSERT OR REPLACE INTO users 
-                (discord_id, character_name, realm_slug, region, rio_score, character_class, thumbnail_url, last_updated)
-                VALUES (?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
-            ''', (discord_id, name, realm, region, score, char_class, thumbnail))
+                (discord_id, character_name, realm_slug, region, rio_score, character_class, thumbnail_url, item_level, last_updated)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+            ''', (discord_id, name, realm, region, score, char_class, thumbnail, item_level))
             await db.commit()
 
     async def get_user(self, discord_id):
         async with aiosqlite.connect(self.db_name) as db:
             db.row_factory = aiosqlite.Row
-            async with db.execute('SELECT discord_id, character_name, realm_slug, region, rio_score, character_class, thumbnail_url FROM users WHERE discord_id = ?', (discord_id,)) as cursor:
+            async with db.execute('SELECT discord_id, character_name, realm_slug, region, rio_score, character_class, thumbnail_url, item_level FROM users WHERE discord_id = ?', (discord_id,)) as cursor:
                 row = await cursor.fetchone()
                 if row:
                     # Возвращаем кортеж для совместимости с существующими вызовами кода

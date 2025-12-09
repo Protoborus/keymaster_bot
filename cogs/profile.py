@@ -6,6 +6,11 @@ from utils.database import Database
 from utils.raiderio import get_character_data
 from discord.ext import tasks
 import asyncio
+import logging
+from utils.cache import cache
+
+# Логгер модуля
+logger = logging.getLogger(__name__)
 
 # Словарь популярных RU/EU серверов
 REALMS = {
@@ -61,45 +66,66 @@ class Profile(commands.Cog):
         choices = [
             app_commands.Choice(name=name, value=slug)
             for name, slug in REALMS.items()
-            if current in name.lower()
+            if current in name.lower() or current in slug.lower()
         ]
         return choices[:25]  # Лимитируем до 25 результатов
 
+    # Choices for realm and region — force selection to avoid invalid slugs
+    REALM_CHOICES = [app_commands.Choice(name=name, value=slug) for name, slug in REALMS.items()]
+    REGION_CHOICES = [
+        app_commands.Choice(name="EU", value="eu"),
+        app_commands.Choice(name="US", value="us"),
+        app_commands.Choice(name="KR", value="kr"),
+        app_commands.Choice(name="CN", value="cn"),
+    ]
+
     @app_commands.command(name="register", description="Регистрация персонажа Raider.IO")
-    @app_commands.describe(region="Регион персонажа", realm="Сервер персонажа", name="Имя персонажа")
+    @app_commands.choices(region=REGION_CHOICES)
     @app_commands.autocomplete(realm=realm_autocomplete)
-    async def register(self, interaction: discord.Interaction, region: str, realm: str, name: str):
-        url = "https://raider.io/api/v1/characters/profile"
-        params = {
-            "region": region,
-            "realm": realm,
-            "name": name,
-            "fields": "mythic_plus_scores_by_season:current,gear"
-        }
+    @app_commands.describe(region="Регион персонажа", realm="Сервер персонажа", name="Имя персонажа")
+    async def register(self, interaction: discord.Interaction, region: app_commands.Choice[str], realm: str, name: str):
+        """Регистрация: region и realm выбираются из списка. Проверяем существование персонажа на Raider.IO
+        и только после позитивного ответа сохраняем запись в БД."""
+        region_slug = region.value
+        realm_slug = realm
 
-        async with aiohttp.ClientSession() as session:
-            async with session.get(url, params=params) as response:
-                if response.status == 200:
-                    data = await response.json()
-                    rio_score = data["mythic_plus_scores_by_season"][0]["scores"]["all"]
-                    thumbnail_url = data["thumbnail_url"]
-                    main_class = data["class"]
+        # Проверяем у Raider.IO наличие персонажа
+        data = await get_character_data(name, realm_slug, region_slug)
+        if not data:
+            await interaction.response.send_message(
+                f"Ошибка: не удалось найти персонажа '{name}' на сервере '{realm}' ({region.name}). Проверьте корректность данных.",
+                ephemeral=True,
+            )
+            return
 
-                    # Сохранение данных в базу
-                    await Database().register_user(
-                        interaction.user.id, name, realm, region, rio_score, main_class, thumbnail_url
-                    )
+        # Разбор данных
+        try:
+            rio_score = data["mythic_plus_scores_by_season"][0]["scores"]["all"]
+        except Exception:
+            rio_score = 0
 
-                    embed = discord.Embed(title="Регистрация успешна!", color=discord.Color.green())
-                    embed.add_field(name="Персонаж", value=f"{name} ({realm}, {region.upper()})", inline=False)
-                    embed.add_field(name="Рейтинг", value=f"{rio_score}", inline=True)
-                    embed.set_thumbnail(url=thumbnail_url)
+        thumbnail_url = data.get("thumbnail_url")
+        main_class = data.get("class")
+        item_level = data.get('gear', {}).get('item_level_equipped')
 
-                    await interaction.response.send_message(embed=embed)
-                else:
-                    await interaction.response.send_message(
-                        f"Ошибка: персонаж {name} ({realm}, {region.upper()}) не найден.", ephemeral=True
-                    )
+        # Сохраняем в БД
+        await Database().register_user(
+            interaction.user.id, name, realm_slug, region_slug, rio_score, main_class, thumbnail_url, item_level
+        )
+
+        # Обновляем кэш для быстрого отображения
+        try:
+            await cache.set(interaction.user.id, (rio_score, item_level))
+        except Exception:
+            logger.debug("Не удалось записать кэш после регистрации")
+
+        embed = discord.Embed(title="Регистрация успешна!", color=discord.Color.green())
+        embed.add_field(name="Персонаж", value=f"{name} ({realm}, {region.name})", inline=False)
+        embed.add_field(name="Рейтинг", value=f"{rio_score}", inline=True)
+        if thumbnail_url:
+            embed.set_thumbnail(url=thumbnail_url)
+
+        await interaction.response.send_message(embed=embed)
 
     @app_commands.command(name="me", description="Показать информацию о вашем профиле")
     async def profile(self, interaction: discord.Interaction):
@@ -107,7 +133,10 @@ class Profile(commands.Cog):
         user_data = await Database().get_user(interaction.user.id)
 
         if user_data:
-            discord_id, character_name, realm_slug, region, rio_score, char_class, thumbnail = user_data
+            # Database schema may include optional `item_level` as the 8th column.
+            # Unpack defensively to avoid ValueError if schema changed.
+            discord_id, character_name, realm_slug, region, rio_score, char_class, thumbnail, *rest = user_data
+            item_level = rest[0] if rest else None
 
             # Запрос к Raider.IO API
             try:
@@ -132,13 +161,14 @@ class Profile(commands.Cog):
             )
 
     @app_commands.command(name="check", description="Проверить Raider.IO любого персонажа")
-    @app_commands.describe(name="Имя", realm="Сервер", region="Регион")
+    @app_commands.choices(region=REGION_CHOICES)
     @app_commands.autocomplete(realm=realm_autocomplete)
-    async def check(self, interaction: discord.Interaction, name: str, realm: str, region: str = 'eu'):
+    @app_commands.describe(name="Имя", realm="Сервер", region="Регион")
+    async def check(self, interaction: discord.Interaction, name: str, realm: str, region: app_commands.Choice[str]):
         await interaction.response.defer()
 
         try:
-            data = await get_character_data(name, realm, region)
+            data = await get_character_data(name, realm, region.value)
             if data is None:
                 await interaction.followup.send(
                     f"❌ Персонаж **{name}** ({realm}) не найден. Проверьте правильность ника и сервера.",
@@ -235,7 +265,8 @@ class Profile(commands.Cog):
                 await interaction.followup.send("Вы не зарегистрированы. Используйте команду `/register`, чтобы зарегистрироваться.", ephemeral=True)
                 return
 
-            discord_id, character_name, realm_slug, region, old_score, char_class, thumbnail = user_data
+            discord_id, character_name, realm_slug, region, old_score, char_class, thumbnail, *rest = user_data
+            old_item_level = rest[0] if rest else None
 
             # Запрос к Raider.IO API
             data = await get_character_data(character_name, realm_slug, region)
@@ -251,9 +282,17 @@ class Profile(commands.Cog):
             new_class = data["class"]
 
             # Обновление данных в базе
+            new_item_level = data.get('gear', {}).get('item_level_equipped')
             await Database().register_user(
-                interaction.user.id, character_name, realm_slug, region, new_score, new_class, new_thumbnail
+                interaction.user.id, character_name, realm_slug, region, new_score, new_class, new_thumbnail, new_item_level
             )
+
+            # Обновить кэш после ручного обновления
+            try:
+                new_item_level = data.get('gear', {}).get('item_level_equipped')
+                await cache.set(interaction.user.id, (new_score, new_item_level))
+            except Exception:
+                logger.debug("Не удалось записать кэш после /update")
 
             embed = discord.Embed(title="✅ Профиль обновлен!", color=discord.Color.green())
             embed.add_field(name="Рейтинг", value=f"{old_score} ➡️ {new_score}", inline=False)
@@ -277,7 +316,8 @@ class Profile(commands.Cog):
                 await interaction.followup.send("Вы не зарегистрированы. Используйте команду `/register`, чтобы зарегистрироваться.", ephemeral=True)
                 return
 
-            discord_id, character_name, realm_slug, region, rio_score, char_class, thumbnail = user_data
+            discord_id, character_name, realm_slug, region, rio_score, char_class, thumbnail, *rest = user_data
+            item_level = rest[0] if rest else None
 
             # Запрос к Raider.IO API
             data = await get_character_data(character_name, realm_slug, region)
@@ -317,16 +357,16 @@ class Profile(commands.Cog):
     @tasks.loop(hours=1)
     async def background_update(self):
         await self.bot.wait_until_ready()
-        print("🔄 [INFO] Запуск фоновой задачи обновления...")
+        logger.info("🔄 Запуск фоновой задачи обновления...")
         try:
             users = await self.bot.db.get_all_users()
-            print(f"📊 [INFO] Найдено пользователей в базе: {len(users)}")
+            logger.info(f"📊 Найдено пользователей в базе: {len(users)}")
             for user in users:
                 discord_id, character_name, realm_slug, region = user
                 try:
                     data = await get_character_data(character_name, realm_slug, region)
                     if not data:
-                        print(f"⚠️ [INFO] Ошибка обновления для {character_name} ({realm_slug}). Пропуск.")
+                        logger.warning(f"⚠️ Ошибка обновления для {character_name} ({realm_slug}). Пропуск.")
                         continue
 
                     new_score = data["mythic_plus_scores_by_season"][0]["scores"]["all"]
@@ -334,15 +374,22 @@ class Profile(commands.Cog):
                     new_class = data["class"]
 
                     await self.bot.db.register_user(
-                        discord_id, character_name, realm_slug, region, new_score, new_class, new_thumbnail
+                        discord_id, character_name, realm_slug, region, new_score, new_class, new_thumbnail, data.get('gear', {}).get('item_level_equipped')
                     )
+
+                    # Обновляем кэш, если пользователь есть в кэше
+                    try:
+                        new_item_level = data.get('gear', {}).get('item_level_equipped')
+                        await cache.set(discord_id, (new_score, new_item_level))
+                    except Exception:
+                        logger.debug(f"Не удалось записать кэш для {character_name}")
 
                     await asyncio.sleep(2)  # Задержка для предотвращения спама API
                 except Exception as e:
-                    print(f"[ERROR] Ошибка при обновлении пользователя {character_name}: {e}")
-            print(f"🏁 [INFO] Фоновое обновление завершено. Обработано {len(users)} пользователей.")
+                    logger.exception(f"Ошибка при обновлении пользователя {character_name}: {e}")
+            logger.info(f"🏁 Фоновое обновление завершено. Обработано {len(users)} пользователей.")
         except Exception as e:
-            print(f"[ERROR] Ошибка при выполнении фоновой задачи: {e}")
+            logger.exception(f"Ошибка при выполнении фоновой задачи: {e}")
 
 async def setup(bot: commands.Bot):
     await bot.add_cog(Profile(bot))
