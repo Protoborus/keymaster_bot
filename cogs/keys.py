@@ -66,6 +66,8 @@ class KeyView(discord.ui.View):
 
         # Шаблонный embed для обновления (копируем чтобы избежать мутаций извне)
         self.embed_template = embed_template.copy() if embed_template else None
+        # Флаг, что группа уже была объявлена собранной
+        self.full_announced = False
 
     def _remove_user_from_all(self, user_id: int):
         if self.tank == user_id:
@@ -160,6 +162,52 @@ class KeyView(discord.ui.View):
         except Exception:
             logging.getLogger(__name__).exception(f"Error refreshing Raider.IO for {character_name} ({realm_slug})")
 
+    async def update_buttons(self, interaction: discord.Interaction, embed: discord.Embed):
+        """Обновляет состояние кнопок (disabled) в зависимости от заполненности слотов.
+        Если группа полностью собрана (1 танк, 1 хил, 3 дд) — меняет цвет embed на зелёный,
+        блокирует кнопки записи и отправляет сообщение о собранной группе в канал (один раз).
+        """
+        # Определяем состояния
+        tank_taken = self.tank is not None
+        healer_taken = self.healer is not None
+        dps_count = len(self.dps)
+
+        # Обновляем disabled для кнопок
+        for child in self.children:
+            if not isinstance(child, discord.ui.Button):
+                continue
+            label = getattr(child, 'label', '')
+            if label == 'Танк':
+                child.disabled = tank_taken
+            elif label == 'Хил':
+                child.disabled = healer_taken
+            elif label == 'ДД':
+                child.disabled = (dps_count >= 3)
+
+        # Проверяем полное собрание
+        is_full = tank_taken and healer_taken and (dps_count >= 3)
+        if is_full:
+            # Изменяем цвет embed на зелёный
+            try:
+                embed.color = discord.Color(0x00ff00)
+            except Exception:
+                pass
+
+            # Если ещё не объявляли — отправляем сообщение в канал
+            if not self.full_announced:
+                tank_mention = f"<@{self.tank}>" if self.tank else ""
+                healer_mention = f"<@{self.healer}>" if self.healer else ""
+                dps_mentions = " ".join(f"<@{uid}>" for uid in self.dps)
+                try:
+                    if interaction.channel:
+                        await interaction.channel.send(f"Группа собрана! 🚀 {tank_mention} {healer_mention} {dps_mentions}")
+                except Exception:
+                    logging.getLogger(__name__).exception("Failed to send full party announcement")
+                self.full_announced = True
+        else:
+            # Если группа уже не полная — сбрасываем флаг, чтобы можно было объявить снова
+            self.full_announced = False
+
     async def update_embed(self) -> discord.Embed:
         # Берем шаблонный embed, если он есть, иначе создаем новый
         if self.embed_template:
@@ -220,25 +268,39 @@ class KeyView(discord.ui.View):
         user_id = interaction.user.id
         # Toggle
         if self.tank == user_id:
+            # выходит из слота
             self.tank = None
+            # сбрасываем объявление полного состава
+            self.full_announced = False
         else:
+            # если слот уже занят другим — уведомляем
+            if self.tank is not None and self.tank != user_id:
+                await interaction.response.send_message("Слот уже занят", ephemeral=True)
+                return
             # убираем из всех ролей и ставим в танк
             self._remove_user_from_all(user_id)
             self.tank = user_id
 
         new_embed = await self.update_embed()
+        await self.update_buttons(interaction, new_embed)
         await interaction.response.edit_message(embed=new_embed, view=self)
 
     @discord.ui.button(label="Хил", style=discord.ButtonStyle.success, emoji=ROLE_ICONS["Healer"])
     async def healer_button(self, interaction: discord.Interaction, button: discord.ui.Button):
         user_id = interaction.user.id
         if self.healer == user_id:
+            # выходит из слота
             self.healer = None
+            self.full_announced = False
         else:
+            if self.healer is not None and self.healer != user_id:
+                await interaction.response.send_message("Слот уже занят", ephemeral=True)
+                return
             self._remove_user_from_all(user_id)
             self.healer = user_id
 
         new_embed = await self.update_embed()
+        await self.update_buttons(interaction, new_embed)
         await interaction.response.edit_message(embed=new_embed, view=self)
 
     @discord.ui.button(label="ДД", style=discord.ButtonStyle.danger, emoji=ROLE_ICONS["DPS"])
@@ -246,24 +308,26 @@ class KeyView(discord.ui.View):
         user_id = interaction.user.id
         # Toggle off if already in list
         if user_id in self.dps:
+            # выходит из слота
             self.dps = [uid for uid in self.dps if uid != user_id]
+            self.full_announced = False
             new_embed = await self.update_embed()
+            await self.update_buttons(interaction, new_embed)
             await interaction.response.edit_message(embed=new_embed, view=self)
+            return
+
+        # Если слоты ДД заполнены — сообщаем
+        if len(self.dps) >= 3:
+            await interaction.response.send_message("Слот уже занят", ephemeral=True)
             return
 
         # Remove from other roles
         self._remove_user_from_all(user_id)
-
         # Add if slot available
-        if len(self.dps) >= 3:
-            # update message (no change) then notify
-            new_embed = await self.update_embed()
-            await interaction.response.edit_message(embed=new_embed, view=self)
-            await interaction.followup.send("Слоты для ДД заполнены (макс 3).", ephemeral=True)
-            return
-
         self.dps.append(user_id)
+
         new_embed = await self.update_embed()
+        await self.update_buttons(interaction, new_embed)
         await interaction.response.edit_message(embed=new_embed, view=self)
 
     @discord.ui.button(label="Закрыть сбор", style=discord.ButtonStyle.secondary, row=1)
