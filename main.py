@@ -47,13 +47,6 @@ class KeyMasterBot(commands.Bot):
                 except Exception as e:
                     logger.error(f"❌ Ошибка загрузки {filename}: {e}", exc_info=True)
 
-        # Загрузка нового расширения cogs.keys
-        try:
-            await self.load_extension("cogs.keys")
-            logger.info("✅ Ког загружен: keys")
-        except Exception as e:
-            logger.error(f"❌ Ошибка загрузки keys: {e}", exc_info=True)
-
         # Синхронизация слэш-команд
         try:
             await self.tree.sync()

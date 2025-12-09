@@ -27,9 +27,26 @@ CLASS_ICONS = {
     "Warrior": "<:WoWWarrior:1360689049421086720>"
 }
 
-DUNGEONS = [
-    "Ара-Кара", "Город Нитей", "Каменное Подземелье", "Сияющий Рассвет",
-    "Туманы Тирна Скитта", "Смертельная Тризна", "Осада Боралуса", "Грим Батол"
+DUNGEONS = {
+    "Ara-Kara, City of Echoes": "Ара-Кара, Город Отголосков",
+    "Priory of the Sacred Flame": "Приорат Священного Пламени",
+    "The Dawnbreaker": "Сияющий Рассвет",
+    "Halls of Atonement": "Чертоги Покаяния",
+    "Tazavesh, the Veiled Market: Streets of Wonder": "Тайный рынок Тазавеш: Улицы чудес",
+    "Tazavesh, the Veiled Market: So'leah's Gambit": "Тайный рынок Тазавеш: Гамбит Со'леи",
+    "Operation: Floodgate": "Операция «Шлюз»",
+    "Eco-Dome Al'dani": "Заповедник «Аль'дани»"
+}
+
+DUNGEON_CHOICES = [
+    {"name": "Ара-Кара, Город Отголосков", "value": "Ara-Kara, City of Echoes"},
+    {"name": "Приорат Священного Пламени", "value": "Priory of the Sacred Flame"},
+    {"name": "Сияющий Рассвет", "value": "The Dawnbreaker"},
+    {"name": "Чертоги Покаяния", "value": "Halls of Atonement"},
+    {"name": "Тайный рынок Тазавеш: Улицы чудес", "value": "Tazavesh, the Veiled Market: Streets of Wonder"},
+    {"name": "Тайный рынок Тазавеш: Гамбит Со'леи", "value": "Tazavesh, the Veiled Market: So'leah's Gambit"},
+    {"name": "Операция «Шлюз»", "value": "Operation: Floodgate"},
+    {"name": "Заповедник «Аль'дани»", "value": "Eco-Dome Al'dani"},
 ]
 
 class KeyView(discord.ui.View):
@@ -133,9 +150,10 @@ class Keys(commands.Cog):
         self.bot = bot
 
     async def dungeon_autocomplete(self, interaction: discord.Interaction, current: str) -> list[app_commands.Choice[str]]:
+        # DUNGEONS — словарь: ключ — английское, значение — русское
         return [
-            app_commands.Choice(name=d, value=d)
-            for d in DUNGEONS if current.lower() in d.lower()
+            app_commands.Choice(name=ru, value=en)
+            for en, ru in DUNGEONS.items() if current.lower() in ru.lower() or current.lower() in en.lower()
         ][:25]
 
     @app_commands.command(name="lfg", description="Найти группу для ключа")

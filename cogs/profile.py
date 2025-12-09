@@ -29,14 +29,14 @@ REALMS = {
 
 # Словарь перевода подземелий
 DUNGEON_RU = {
-    "Ara-Kara, City of Echoes": "Ара-Кара",
-    "City of Threads": "Город Нитей",
-    "The Stonevault": "Каменное Подземелье",
+    "Ara-Kara, City of Echoes": "Ара-Кара, Город Отголосков",
+    "Priory of the Sacred Flame": "Приорат Священного Пламени",
     "The Dawnbreaker": "Сияющий Рассвет",
-    "Mists of Tirna Scithe": "Туманы Тирна Скитта",
-    "The Necrotic Wake": "Смертельная Тризна",
-    "Siege of Boralus": "Осада Боралуса",
-    "Grim Batol": "Грим Батол"
+    "Halls of Atonement": "Чертоги Покаяния",
+    "Tazavesh, the Veiled Market: Streets of Wonder": "Тайный рынок Тазавеш: Улицы чудес",
+    "Tazavesh, the Veiled Market: So'leah's Gambit": "Тайный рынок Тазавеш: Гамбит Со'леи",
+    "Operation: Floodgate": "Операция «Шлюз»",
+    "Eco-Dome Al'dani": "Заповедник «Аль'дани»"
 }
 
 # Цвета классов WoW
