@@ -1,0 +1,10 @@
+{
+    "sqltools.connections": [
+        {
+            "previewLimit": 50,
+            "driver": "SQLite",
+            "name": "keymaster",
+            "database": "\"D:\\keymaster_bot\\bot_database.db\""
+        }
+    ]
+}
