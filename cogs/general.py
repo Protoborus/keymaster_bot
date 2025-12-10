@@ -12,7 +12,6 @@ class General(commands.Cog):
         latency = round(self.bot.latency * 1000)  # Задержка в миллисекундах
         await interaction.response.send_message(f"Pong! Задержка: {latency} мс")
 
-    @app_commands.command(name="get_emojis", description="Выгрузить ID эмодзи (Стандартный метод)")
     async def get_emojis(self, interaction: discord.Interaction):
         if not interaction.guild:
             await interaction.response.send_message("Команда работает только на сервере.", ephemeral=True)

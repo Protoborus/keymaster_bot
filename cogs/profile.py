@@ -8,6 +8,7 @@ from discord.ext import tasks
 import asyncio
 import logging
 from utils.cache import cache
+from typing import Optional
 
 # Логгер модуля
 logger = logging.getLogger(__name__)
@@ -307,31 +308,57 @@ class Profile(commands.Cog):
             )
 
     @app_commands.command(name="weekly", description="Показать прогресс недельного хранилища")
-    async def weekly(self, interaction: discord.Interaction):
+    @app_commands.choices(region=REGION_CHOICES)
+    @app_commands.autocomplete(realm=realm_autocomplete)
+    @app_commands.describe(
+        name="Имя персонажа (оставьте пустым для своего профиля)",
+        realm="Сервер персонажа (обязательно вместе с именем)",
+        region="Регион персонажа (обязательно вместе с именем)",
+    )
+    async def weekly(
+        self,
+        interaction: discord.Interaction,
+        name: Optional[str] = None,
+        realm: Optional[str] = None,
+        region: Optional[app_commands.Choice[str]] = None,
+    ):
         await interaction.response.defer()
 
         try:
-            user_data = await self.bot.db.get_user(interaction.user.id)
-            if not user_data:
-                await interaction.followup.send("Вы не зарегистрированы. Используйте команду `/register`, чтобы зарегистрироваться.", ephemeral=True)
-                return
+            if name:
+                if not realm or not region:
+                    await interaction.followup.send(
+                        "Укажите имя, сервер и регион персонажа, которого хотите проверить.",
+                        ephemeral=True,
+                    )
+                    return
 
-            discord_id, character_name, realm_slug, region, rio_score, char_class, thumbnail, *rest = user_data
-            item_level = rest[0] if rest else None
+                target_name = name
+                target_realm = realm
+                target_region = region.value
+            else:
+                user_data = await self.bot.db.get_user(interaction.user.id)
+                if not user_data:
+                    await interaction.followup.send(
+                        "Вы не зарегистрированы. Используйте команду `/register`, чтобы зарегистрироваться.",
+                        ephemeral=True,
+                    )
+                    return
 
-            # Запрос к Raider.IO API
-            data = await get_character_data(character_name, realm_slug, region)
+                _, target_name, target_realm, target_region, *_ = user_data
+
+            data = await get_character_data(target_name, target_realm, target_region)
             if not data:
                 await interaction.followup.send(
-                    "❌ Не удалось получить данные с Raider.IO. Проверьте настройки персонажа или попробуйте позже.",
-                    ephemeral=True
+                    f"❌ Персонаж **{target_name}** на сервере **{target_realm}** не найден.",
+                    ephemeral=True,
                 )
                 return
 
             weekly_runs = data.get("mythic_plus_weekly_highest_level_runs", [])
 
             embed = discord.Embed(
-                title=f"🎁 Недельный прогресс для {character_name}",
+                title=f"🎁 Недельный прогресс для {target_name}",
                 color=discord.Color.blue()
             )
 

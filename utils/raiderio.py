@@ -28,10 +28,16 @@ async def _request_with_retry(url: str, params: dict | None = None) -> Optional[
                                 text = await response.text()
                             except Exception:
                                 text = '<no body>'
-                            # Log minimal info for diagnostics and do not raise for 400/404
+                            # Log friendly info and do not raise for 400/404
                             logging.getLogger(__name__).warning(
-                                "Raider.IO returned %s for %s (params=%s) - body=%s",
-                                response.status, url, params, (text[:300] if isinstance(text, str) else str(text))
+                                "Raider.IO: персонаж %(name)s на сервере %(realm)s (%(region)s) не найден — HTTP %(status)d. Ответ: %(body)s",
+                                {
+                                    "name": params.get("name"),
+                                    "realm": params.get("realm"),
+                                    "region": params.get("region"),
+                                    "status": response.status,
+                                    "body": (text[:300] if isinstance(text, str) else str(text)),
+                                }
                             )
                             return None
                         elif response.status == 429 or 500 <= response.status < 600:

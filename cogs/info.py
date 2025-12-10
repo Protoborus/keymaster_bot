@@ -1,3 +1,11 @@
+import sys
+from pathlib import Path
+
+# Обеспечиваем корректную загрузку пакета при запуске модуля напрямую
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
+
 import discord
 from discord import app_commands
 from discord.ext import commands
@@ -23,17 +31,18 @@ class Info(commands.Cog):
     @app_commands.command(name="helpme", description="Получить описание функционала бота в личные сообщения")
     async def helpme(self, interaction: discord.Interaction):
         text = (
-            "Функционал KeyMasterBot:\n"
-            "- /register — регистрация персонажа\n"
-            "- /lfg — создать сбор в ключ\n"
-            "- Кнопки для записи в роли (Танк, Хил, ДД)\n"
-            "- Кнопка 'Закрыть сбор' для лидера\n"
-            "- Автоматическая проверка лимитов\n"
-            "- Примечание к сбору (опционально)\n"
-            "- Восстановление сборов после рестарта\n"
-            "- Профиль, рейтинг, gear через Raider.IO\n"
-            "- Защита от дублей ролей\n"
-            "- Слэш-команды и быстрые ответы\n"
+            "Список доступных слэш-команд KeyMasterBot:\n"
+            "1. /ping — проверяет задержку между ботом и сервером.\n"
+            "2. /register — регистрация в боте.\n"
+            "3. /me — показывает ваш профиль.\n"
+            "4. /check — показывает RIO любого персонажа.\n"
+            "5. /top — отображает топ игроков зарегестрированнх в боте.\n"
+            "6. /update — обновляет информацию вашего персонажа из Raider.IO.\n"
+            "7. /weekly — показывает прогресс недельного хранилища указанного персонажа.\n"
+            "8. /lfg — создает сбор для ключей.\n"
+            "9. /affixes — показывает текущие аффиксы с Raider.IO.\n"
+            "10. /helpme — дублирует это сообщение в личку.\n"
+            "При любом вопросе — просто напишите команду /helpme снова!"
         )
         await interaction.response.defer(ephemeral=True)
         try:
